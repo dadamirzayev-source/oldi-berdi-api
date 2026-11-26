@@ -32,9 +32,14 @@ export async function POST(req: Request, ctx: Ctx) {
        where id = $3 and pair_code = $4 and status = 'PENDING'`,
       [now, session.role, id, session.pair_code],
     );
-    const updated = await sql<EntryRow>("select * from entries where id = $1", [id]);
+    const updated = await sql<EntryRow>(
+      "select * from entries where id = $1 and pair_code = $2",
+      [id, session.pair_code],
+    );
+    if (updated.length === 0) return jsonError("Yozuv topilmadi", 404);
     return Response.json({ ok: true, entry: rowToEntry(updated[0]) });
   } catch (e) {
-    return jsonError(e instanceof Error ? e.message : "confirm failed", 500);
+    console.error("confirm failed", e);
+    return jsonError("confirm failed", 500);
   }
 }

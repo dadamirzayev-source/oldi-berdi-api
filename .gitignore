@@ -3,4 +3,5 @@ node_modules
 .data
 .env*
 !.env.example
-.data
+tsconfig.tsbuildinfo
+*.tsbuildinfo

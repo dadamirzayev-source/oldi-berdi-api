@@ -1,4 +1,5 @@
 import {
+  PAIR_LOOKUP_DENIED,
   createSession,
   hashPin,
   isPinSet,
@@ -9,16 +10,22 @@ import {
 } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
+import { clientKey, takeToken } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/auth/set-pin
  * Body: { pair_code, role, pin }
- * First-run only for that role. PIN must not match the other role.
+ * First-run only for that role.
  */
 export async function POST(req: Request) {
   try {
+    const retry = takeToken(clientKey(req, "set-pin"), 10, 15 * 60_000);
+    if (retry != null) {
+      return jsonError("Juda ko‘p urinish — biroz kuting", 429);
+    }
+
     const body = (await req.json()) as {
       pair_code?: string;
       role?: string;
@@ -32,7 +39,7 @@ export async function POST(req: Request) {
     if (pinErr) return jsonError(pinErr);
 
     const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
-    if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
+    if (pair.length === 0) return jsonError(PAIR_LOOKUP_DENIED, 401);
 
     if (await isPinSet(pairCode, role)) {
       return jsonError("PIN allaqachon bor — login qiling", 409);
@@ -51,8 +58,8 @@ export async function POST(req: Request) {
     const pinHash = hashPin(pin, salt);
     const now = Date.now();
     await sql(
-      `insert into role_pins (pair_code, role, salt, pin_hash, updated_at)
-       values ($1, $2, $3, $4, $5)`,
+      `insert into role_pins (pair_code, role, salt, pin_hash, updated_at, must_change)
+       values ($1, $2, $3, $4, $5, false)`,
       [pairCode, role, salt, pinHash, now],
     );
 
@@ -64,10 +71,12 @@ export async function POST(req: Request) {
       role,
       token: session.token,
       expires_at: session.expires_at,
+      must_change_pin: false,
       pin_set_a: role === "A" || (await isPinSet(pairCode, "A")),
       pin_set_b: role === "B" || (await isPinSet(pairCode, "B")),
     });
   } catch (e) {
-    return jsonError(e instanceof Error ? e.message : "set-pin failed", 500);
+    console.error("set-pin failed", e);
+    return jsonError("set-pin failed", 500);
   }
 }

@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 export type EntryRow = {
   id: string;
   pair_code: string;
@@ -39,7 +41,7 @@ export function genPairCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
   for (let i = 0; i < 8; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    out += alphabet[randomInt(alphabet.length)];
   }
   return out;
 }

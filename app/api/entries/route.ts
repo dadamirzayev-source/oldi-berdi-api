@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       ) values (
         $1,$2,$3,$4,'PENDING',$5,$6,$7,$8,$9,$10,$11,null,null,$12
       )
-      on conflict (id) do update set
+      on conflict (pair_code, id) do update set
         type = excluded.type,
         goods_name = excluded.goods_name,
         price = excluded.price,
@@ -54,7 +54,9 @@ export async function POST(req: Request) {
         currency = excluded.currency,
         note = excluded.note,
         updated_at = excluded.updated_at
-      where entries.status = 'PENDING' and entries.created_by = $4`,
+      where entries.status = 'PENDING'
+        and entries.created_by = $4
+        and entries.pair_code = $2`,
       [
         entry.id,
         session.pair_code,
@@ -71,10 +73,14 @@ export async function POST(req: Request) {
       ],
     );
 
-    const rows = await sql<EntryRow>("select * from entries where id = $1", [entry.id]);
-    if (rows.length === 0) return jsonError("Yozuv saqlanmadi", 500);
+    const rows = await sql<EntryRow>(
+      "select * from entries where id = $1 and pair_code = $2",
+      [entry.id, session.pair_code],
+    );
+    if (rows.length === 0) return jsonError("Yozuv saqlanmadi", 409);
     return Response.json({ ok: true, entry: rowToEntry(rows[0]) });
   } catch (e) {
-    return jsonError(e instanceof Error ? e.message : "create failed", 500);
+    console.error("create failed", e);
+    return jsonError("create failed", 500);
   }
 }
