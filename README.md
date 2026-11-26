@@ -24,7 +24,7 @@ Endpoints:
 ## Other endpoints
 
 - `GET /api/health` — ok / generic error only
-- `POST /api/pair` — **create** requires `PAIR_CREATE_KEY`; **join** with `{ pair_code }` (rate-limited)
+- `POST /api/pair` — **create**: first pair allowed when DB empty (bootstrap); later creates need `PAIR_CREATE_KEY`. **join** with `{ pair_code }` (rate-limited)
 - `POST /api/entries` · confirm|reject · `GET /api/sync` (Bearer; pair-scoped; blocked while must_change)
 
 ## Secrets
