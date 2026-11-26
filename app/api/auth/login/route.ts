@@ -10,7 +10,6 @@ const FAIL_MSG = "Kirish rad etildi";
 /**
  * POST /api/auth/login
  * Body: { pair_code, pin }
- * Role is inferred by matching the PIN to role_pins (must be unique per role).
  * Unknown pair vs wrong PIN share the same error (no enumeration).
  */
 export async function POST(req: Request) {
@@ -25,9 +24,15 @@ export async function POST(req: Request) {
     const pinErr = validatePinFormat(pin);
     if (pinErr) return jsonError(pinErr);
 
-    const limitKey = clientKey(req, `login:${pairCode || "none"}`);
-    const retry = await takeToken(limitKey, 8, 15 * 60_000);
-    if (retry != null) {
+    // Tight limits: per IP+pair and per IP (DB-backed, shared).
+    const pairKey = clientKey(req, `login:${pairCode || "none"}`);
+    const ipKey = clientKey(req, "login-ip");
+    const retryPair = await takeToken(pairKey, 5, 30 * 60_000);
+    if (retryPair != null) {
+      return jsonError("Juda ko‘p urinish — biroz kuting", 429);
+    }
+    const retryIp = await takeToken(ipKey, 20, 60 * 60_000);
+    if (retryIp != null) {
       return jsonError("Juda ko‘p urinish — biroz kuting", 429);
     }
 
@@ -61,7 +66,7 @@ export async function POST(req: Request) {
       return jsonError("PIN ikki rolga mos keldi — har xil PIN qo‘ying", 409);
     }
 
-    await clearBucket(limitKey);
+    await clearBucket(pairKey);
 
     const role = matches[0].role as "A" | "B";
     const session = await createSession(pairCode, role);
