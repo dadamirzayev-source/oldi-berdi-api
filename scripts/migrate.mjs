@@ -94,6 +94,21 @@ async function clearLoginRateLimits(client) {
   console.log(`migrate: cleared ${res.rowCount ?? 0} login rate-limit bucket(s)`);
 }
 
+/**
+ * Optional re-clear of ledger rows without a new migration.
+ * Requires CLEAR_PAIR_ENTRIES=1. Keeps pairs / role_pins / sessions.
+ */
+async function clearPairEntries(client) {
+  if (process.env.CLEAR_PAIR_ENTRIES?.trim() !== "1") {
+    return;
+  }
+  const pairCode = (process.env.OPERATOR_PAIR_CODE?.trim() || "MNEQ9TZK").toUpperCase();
+  const res = await client.query("delete from entries where pair_code = $1 returning id", [
+    pairCode,
+  ]);
+  console.log(`migrate: cleared ${res.rowCount ?? 0} entries for pair ${pairCode}`);
+}
+
 const client = new pg.Client({
   connectionString: process.env.DATABASE_URL_UNPOOLED?.trim() || url,
 });
@@ -121,6 +136,7 @@ try {
   }
   await applyOperatorPins(client);
   await clearLoginRateLimits(client);
+  await clearPairEntries(client);
 } finally {
   await client.end();
 }
