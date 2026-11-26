@@ -37,7 +37,8 @@ Endpoints:
 | Env | Purpose |
 |---|---|
 | `DATABASE_URL` | Set by Cursor Apps when Postgres is attached |
-| `PAIR_CREATE_KEY` | Required to create pairs |
+| `PAIR_CREATE_KEY` | Required to create pairs and `/api/bootstrap` |
+| `OPERATOR_PIN_A` / `OPERATOR_PIN_B` | Optional publish-time seed for baked pair (migrate only; never commit) |
 
 ## Local
 
