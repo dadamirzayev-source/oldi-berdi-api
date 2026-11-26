@@ -9,10 +9,10 @@ Next.js HTTPS sync API for the Oldi-berdi Android app.
 
 PIN-only — no email / Resend.
 
-- Provisional PINs may be seeded when a pair is **created**; they require
-  `change-pin` before sync/entries (`must_change_pin`).
-- Provisional default values are **not** published here; change on first use.
-- PINs are 6–12 digits. Login is rate-limited; errors do not enumerate pairs.
+- Pair **create** (with `PAIR_CREATE_KEY`) seeds **random** provisional PINs and
+  returns them once as `provisional_pins`. They require `change-pin` before sync.
+- No fixed default PINs are shipped in source.
+- PINs are 6–12 digits. Login is rate-limited; pair lookup errors do not enumerate.
 
 Endpoints:
 
@@ -24,8 +24,8 @@ Endpoints:
 ## Other endpoints
 
 - `GET /api/health` — ok / generic error only
-- `POST /api/pair` — **create** requires `PAIR_CREATE_KEY` (`x-pair-create-key` or Bearer); **join** with `{ pair_code }` is open (rate-limited)
-- `POST /api/entries` · confirm|reject · `GET /api/sync` (Bearer; blocked while must_change)
+- `POST /api/pair` — **create** requires `PAIR_CREATE_KEY`; **join** with `{ pair_code }` (rate-limited)
+- `POST /api/entries` · confirm|reject · `GET /api/sync` (Bearer; pair-scoped; blocked while must_change)
 
 ## Secrets
 

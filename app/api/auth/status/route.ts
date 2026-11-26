@@ -1,3 +1,4 @@
+import { PAIR_LOOKUP_DENIED } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
 import { clientKey, takeToken } from "@/lib/rate-limit";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/auth/status?pair_code=
  * Reports pin flags only — does not seed credentials.
+ * Unknown pairs get the same denial as auth failures (no enumeration).
  */
 export async function GET(req: Request) {
   try {
@@ -20,7 +22,7 @@ export async function GET(req: Request) {
     if (!pairCode) return jsonError("pair_code majburiy");
 
     const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
-    if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
+    if (pair.length === 0) return jsonError(PAIR_LOOKUP_DENIED, 401);
 
     const rows = await sql<{ role: string; must_change: boolean }>(
       "select role, must_change from role_pins where pair_code = $1",

@@ -1,8 +1,8 @@
 import {
+  PAIR_LOOKUP_DENIED,
   createSession,
   hashPin,
   isPinSet,
-  isProvisionalDefaultPin,
   newSalt,
   normalizeRole,
   validatePin,
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/auth/set-pin
  * Body: { pair_code, role, pin }
- * First-run only for that role. PIN must not match the other role.
+ * First-run only for that role.
  */
 export async function POST(req: Request) {
   try {
@@ -37,12 +37,9 @@ export async function POST(req: Request) {
     if (!pairCode || !role) return jsonError("pair_code va role majburiy");
     const pinErr = validatePin(pin);
     if (pinErr) return jsonError(pinErr);
-    if (isProvisionalDefaultPin(pin)) {
-      return jsonError("Bu PIN taqiqlangan — boshqa PIN tanlang");
-    }
 
     const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
-    if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
+    if (pair.length === 0) return jsonError(PAIR_LOOKUP_DENIED, 401);
 
     if (await isPinSet(pairCode, role)) {
       return jsonError("PIN allaqachon bor — login qiling", 409);

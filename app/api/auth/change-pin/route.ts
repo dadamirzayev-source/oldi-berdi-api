@@ -2,10 +2,10 @@ import { sql } from "@/lib/db";
 import {
   hashPin,
   invalidateSessions,
-  isProvisionalDefaultPin,
   newSalt,
   requireSession,
   validatePin,
+  validatePinFormat,
   verifyPin,
 } from "@/lib/auth";
 import { jsonError } from "@/lib/entries";
@@ -14,7 +14,6 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/auth/change-pin
- * Faqat o‘z rolining PIN’ini o‘zgartirish (Bearer session).
  * Body: { old_pin, new_pin }
  * Invalidates other sessions for this role; clears must_change.
  */
@@ -27,15 +26,12 @@ export async function POST(req: Request) {
     const body = (await req.json()) as { old_pin?: string; new_pin?: string };
     const oldPin = (body.old_pin ?? "").trim();
     const newPin = (body.new_pin ?? "").trim();
-    const errOld = validatePin(oldPin);
+    const errOld = validatePinFormat(oldPin);
     if (errOld) return jsonError("Eski PIN: " + errOld);
     const errNew = validatePin(newPin);
     if (errNew) return jsonError("Yangi PIN: " + errNew);
     if (newPin === oldPin) {
       return jsonError("Yangi PIN eski PINdan farq qilishi kerak");
-    }
-    if (isProvisionalDefaultPin(newPin)) {
-      return jsonError("Bu PIN taqiqlangan — boshqa PIN tanlang");
     }
 
     const rows = await sql<{ salt: string; pin_hash: string }>(
@@ -65,7 +61,6 @@ export async function POST(req: Request) {
       [salt, pinHash, Date.now(), session.pair_code, session.role],
     );
 
-    // Drop every other session for this role (stolen tokens die).
     await invalidateSessions(session.pair_code, session.role, session.token);
 
     return Response.json({

@@ -1,4 +1,9 @@
-import { checkPairCreateKey, ensureDefaultPins } from "@/lib/auth";
+import {
+  PAIR_LOOKUP_DENIED,
+  checkPairCreateKey,
+  pinStatus,
+  seedRandomPins,
+} from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { genPairCode, jsonError } from "@/lib/entries";
 import { clientKey, takeToken } from "@/lib/rate-limit";
@@ -21,23 +26,18 @@ export async function POST(req: Request) {
         [requested],
       );
       if (existing.length === 0) {
-        return jsonError("Juftlik topilmadi", 404);
+        return jsonError(PAIR_LOOKUP_DENIED, 401);
       }
-      // Join: backfill provisional pins only if a role has none yet.
-      const pins = await ensureDefaultPins(existing[0].pair_code);
+      // Join: never seed credentials (create-key holder gets provisional PINs once).
+      const pins = await pinStatus(existing[0].pair_code);
       return Response.json({
         ok: true,
         pair_code: existing[0].pair_code,
         joined: true,
-        pin_set_a: pins.pin_set_a,
-        pin_set_b: pins.pin_set_b,
-        must_change_a: pins.must_change_a,
-        must_change_b: pins.must_change_b,
-        seeded: pins.seeded,
+        ...pins,
       });
     }
 
-    // Create requires PAIR_CREATE_KEY (header x-pair-create-key or Bearer).
     if (!checkPairCreateKey(req)) {
       return jsonError(
         "Juftlik yaratish uchun avtorizatsiya kerak (PAIR_CREATE_KEY)",
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
       const code = genPairCode();
       try {
         await sql("insert into pairs (pair_code) values ($1)", [code]);
-        const pins = await ensureDefaultPins(code);
+        const pins = await seedRandomPins(code);
         return Response.json({
           ok: true,
           pair_code: code,
@@ -64,7 +64,8 @@ export async function POST(req: Request) {
           must_change_a: pins.must_change_a,
           must_change_b: pins.must_change_b,
           seeded: pins.seeded,
-          note: "Provisional PINs require change-pin before sync",
+          provisional_pins: pins.provisional_pins,
+          note: "Provisional PINs shown once; change-pin required before sync",
         });
       } catch {
         // collision — retry

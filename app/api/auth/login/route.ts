@@ -1,4 +1,4 @@
-import { createSession, validatePin, verifyPin } from "@/lib/auth";
+import { createSession, validatePinFormat, verifyPin } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
 import { clearBucket, clientKey, takeToken } from "@/lib/rate-limit";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     const pairCode = (body.pair_code ?? "").trim().toUpperCase();
     const pin = (body.pin ?? "").trim();
     if (!pairCode) return jsonError("pair_code majburiy");
-    const pinErr = validatePin(pin);
+    const pinErr = validatePinFormat(pin);
     if (pinErr) return jsonError(pinErr);
 
     const limitKey = clientKey(req, `login:${pairCode || "none"}`);
