@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { EntryRow, jsonError, rowToEntry } from "@/lib/entries";
 
@@ -22,24 +23,18 @@ type IncomingEntry = {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      pair_code?: string;
-      role?: string;
-      entry?: IncomingEntry;
-    };
-    const pairCode = (body.pair_code ?? "").trim().toUpperCase();
-    const role = (body.role ?? "").trim().toUpperCase();
-    const entry = body.entry;
-    if (!pairCode || !role || !entry?.id || !entry.type || !entry.currency) {
-      return jsonError("pair_code, role va entry majburiy");
-    }
-    if (role !== "A" && role !== "B") return jsonError("role A yoki B bo‘lishi kerak");
+    const auth = await requireSession(req);
+    if ("error" in auth) return auth.error;
+    const { session } = auth;
 
-    const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
-    if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
+    const body = (await req.json()) as { entry?: IncomingEntry };
+    const entry = body.entry;
+    if (!entry?.id || !entry.type || !entry.currency) {
+      return jsonError("entry majburiy");
+    }
 
     const now = Date.now();
-    const createdBy = (entry.createdBy ?? role).toUpperCase();
+    const createdBy = session.role;
     const createdAt = entry.createdAt ?? now;
     const updatedAt = now;
 
@@ -59,10 +54,10 @@ export async function POST(req: Request) {
         currency = excluded.currency,
         note = excluded.note,
         updated_at = excluded.updated_at
-      where entries.status = 'PENDING'`,
+      where entries.status = 'PENDING' and entries.created_by = $4`,
       [
         entry.id,
-        pairCode,
+        session.pair_code,
         entry.type,
         createdBy,
         entry.goodsName ?? null,

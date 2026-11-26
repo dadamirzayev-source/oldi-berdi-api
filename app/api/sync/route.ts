@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { EntryRow, jsonError, rowToEntry } from "@/lib/entries";
 
@@ -5,30 +6,43 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const pairCode = (url.searchParams.get("pair_code") ?? "").trim().toUpperCase();
-    const role = (url.searchParams.get("role") ?? "").trim().toUpperCase();
-    const since = Number(url.searchParams.get("since") ?? "0") || 0;
-    if (!pairCode || (role !== "A" && role !== "B")) {
-      return jsonError("pair_code va role majburiy");
-    }
+    const auth = await requireSession(req);
+    if ("error" in auth) return auth.error;
+    const { session } = auth;
 
-    const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
-    if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
+    const url = new URL(req.url);
+    const since = Number(url.searchParams.get("since") ?? "0") || 0;
 
     const rows = await sql<EntryRow>(
       `select * from entries
        where pair_code = $1 and updated_at > $2
        order by updated_at asc`,
-      [pairCode, since],
+      [session.pair_code, since],
     );
 
-    const pending = rows.filter((r) => r.status === "PENDING").map(rowToEntry);
-    const confirmed = rows.filter((r) => r.status === "CONFIRMED").map(rowToEntry);
-    const rejected = rows.filter((r) => r.status === "REJECTED").map(rowToEntry);
-    const cursor = rows.reduce((max, r) => Math.max(max, Number(r.updated_at)), since);
+    // Full sync (since=0): return all for this pair
+    const all =
+      since === 0
+        ? await sql<EntryRow>(
+            `select * from entries where pair_code = $1 order by updated_at asc`,
+            [session.pair_code],
+          )
+        : rows;
 
-    return Response.json({ ok: true, pending, confirmed, rejected, cursor });
+    const pending = all.filter((r) => r.status === "PENDING").map(rowToEntry);
+    const confirmed = all.filter((r) => r.status === "CONFIRMED").map(rowToEntry);
+    const rejected = all.filter((r) => r.status === "REJECTED").map(rowToEntry);
+    const cursor = all.reduce((max, r) => Math.max(max, Number(r.updated_at)), since);
+
+    return Response.json({
+      ok: true,
+      role: session.role,
+      pair_code: session.pair_code,
+      pending,
+      confirmed,
+      rejected,
+      cursor,
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "sync failed", 500);
   }
