@@ -38,6 +38,15 @@ export async function POST(req: Request) {
       return jsonError("Eski PIN noto‘g‘ri", 401);
     }
 
+    const otherRole = session.role === "A" ? "B" : "A";
+    const other = await sql<{ salt: string; pin_hash: string }>(
+      "select salt, pin_hash from role_pins where pair_code = $1 and role = $2",
+      [session.pair_code, otherRole],
+    );
+    if (other[0] && verifyPin(newPin, other[0].salt, other[0].pin_hash)) {
+      return jsonError("Bu PIN boshqa rolga tegishli — boshqa PIN tanlang", 409);
+    }
+
     const salt = newSalt();
     const pinHash = hashPin(newPin, salt);
     await sql(

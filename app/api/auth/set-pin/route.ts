@@ -5,6 +5,7 @@ import {
   newSalt,
   normalizeRole,
   validatePin,
+  verifyPin,
 } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/auth/set-pin
  * Body: { pair_code, role, pin }
- * First-run only (when that role has no PIN yet).
+ * First-run only for that role. PIN must not match the other role.
  */
 export async function POST(req: Request) {
   try {
@@ -37,6 +38,15 @@ export async function POST(req: Request) {
       return jsonError("PIN allaqachon bor — login qiling", 409);
     }
 
+    const otherRole = role === "A" ? "B" : "A";
+    const other = await sql<{ salt: string; pin_hash: string }>(
+      "select salt, pin_hash from role_pins where pair_code = $1 and role = $2",
+      [pairCode, otherRole],
+    );
+    if (other[0] && verifyPin(pin, other[0].salt, other[0].pin_hash)) {
+      return jsonError("Bu PIN boshqa rolga tegishli — boshqa PIN tanlang", 409);
+    }
+
     const salt = newSalt();
     const pinHash = hashPin(pin, salt);
     const now = Date.now();
@@ -54,6 +64,8 @@ export async function POST(req: Request) {
       role,
       token: session.token,
       expires_at: session.expires_at,
+      pin_set_a: role === "A" || (await isPinSet(pairCode, "A")),
+      pin_set_b: role === "B" || (await isPinSet(pairCode, "B")),
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "set-pin failed", 500);
