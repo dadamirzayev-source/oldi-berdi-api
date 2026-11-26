@@ -12,11 +12,10 @@ export async function GET() {
       time: Date.now(),
     });
   } catch (e) {
-    const message =
-      e instanceof Error
-        ? `${e.message}${e.cause ? ` (${String(e.cause)})` : ""}`
-        : "health failed";
     console.error("health error", e);
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    return Response.json(
+      { ok: false, error: "service unavailable" },
+      { status: 500 },
+    );
   }
 }

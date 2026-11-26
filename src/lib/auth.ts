@@ -9,6 +9,7 @@ export type Session = {
   pair_code: string;
   role: "A" | "B";
   expires_at: number;
+  must_change_pin: boolean;
 };
 
 export function normalizeRole(role: string | undefined | null): "A" | "B" | null {
@@ -51,19 +52,30 @@ export async function isPinSet(pairCode: string, role: "A" | "B"): Promise<boole
   return rows.length > 0;
 }
 
-/** Built-in first login PINs (users should change via change-pin). */
+/**
+ * Provisional first-login PINs. Seeded with must_change=true —
+ * sync/entries stay blocked until change-pin clears the flag.
+ * Values are not documented in the public README.
+ */
 export const DEFAULT_ROLE_PINS: Record<"A" | "B", string> = {
-  A: "123456", // Olimjon
-  B: "654321", // Azizbek
+  A: "123456",
+  B: "654321",
 };
 
+export function isProvisionalDefaultPin(pin: string): boolean {
+  const p = pin.trim();
+  return p === DEFAULT_ROLE_PINS.A || p === DEFAULT_ROLE_PINS.B;
+}
+
 /**
- * Ensure both roles have a PIN. Inserts defaults only when missing —
- * never overwrites an existing PIN.
+ * Ensure both roles have a PIN. Inserts provisional defaults only when
+ * missing — never overwrites an existing PIN. New seeds require change.
  */
 export async function ensureDefaultPins(pairCode: string): Promise<{
   pin_set_a: boolean;
   pin_set_b: boolean;
+  must_change_a: boolean;
+  must_change_b: boolean;
   seeded: ("A" | "B")[];
 }> {
   const seeded: ("A" | "B")[] = [];
@@ -74,15 +86,24 @@ export async function ensureDefaultPins(pairCode: string): Promise<{
     const salt = newSalt();
     const pinHash = hashPin(pin, salt);
     await sql(
-      `insert into role_pins (pair_code, role, salt, pin_hash, updated_at)
-       values ($1, $2, $3, $4, $5)`,
+      `insert into role_pins (pair_code, role, salt, pin_hash, updated_at, must_change)
+       values ($1, $2, $3, $4, $5, true)`,
       [pairCode, role, salt, pinHash, now],
     );
     seeded.push(role);
   }
+  const flags = await sql<{ role: string; must_change: boolean }>(
+    "select role, must_change from role_pins where pair_code = $1",
+    [pairCode],
+  );
+  const byRole = Object.fromEntries(
+    flags.map((r) => [r.role, Boolean(r.must_change)]),
+  ) as Record<string, boolean>;
   return {
-    pin_set_a: true,
-    pin_set_b: true,
+    pin_set_a: flags.some((r) => r.role === "A"),
+    pin_set_b: flags.some((r) => r.role === "B"),
+    must_change_a: Boolean(byRole.A),
+    must_change_b: Boolean(byRole.B),
     seeded,
   };
 }
@@ -96,11 +117,40 @@ export async function createSession(pairCode: string, role: "A" | "B"): Promise<
      values ($1, $2, $3, $4, $5)`,
     [token, pairCode, role, expires, now],
   );
-  return { token, pair_code: pairCode, role, expires_at: expires };
+  const pinRows = await sql<{ must_change: boolean }>(
+    "select must_change from role_pins where pair_code = $1 and role = $2",
+    [pairCode, role],
+  );
+  return {
+    token,
+    pair_code: pairCode,
+    role,
+    expires_at: expires,
+    must_change_pin: Boolean(pinRows[0]?.must_change),
+  };
+}
+
+export async function invalidateSessions(
+  pairCode: string,
+  role: "A" | "B",
+  exceptToken?: string,
+): Promise<void> {
+  if (exceptToken) {
+    await sql(
+      "delete from sessions where pair_code = $1 and role = $2 and token <> $3",
+      [pairCode, role, exceptToken],
+    );
+  } else {
+    await sql("delete from sessions where pair_code = $1 and role = $2", [
+      pairCode,
+      role,
+    ]);
+  }
 }
 
 export async function requireSession(
   req: Request,
+  opts: { allowMustChange?: boolean } = {},
 ): Promise<{ session: Session } | { error: Response }> {
   const header = req.headers.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
@@ -125,18 +175,58 @@ export async function requireSession(
   }
   const role = normalizeRole(row.role);
   if (!role) return { error: jsonError("Noto‘g‘ri sessiya", 401) };
+
+  const pinRows = await sql<{ must_change: boolean }>(
+    "select must_change from role_pins where pair_code = $1 and role = $2",
+    [row.pair_code, role],
+  );
+  const mustChange = Boolean(pinRows[0]?.must_change);
+  if (mustChange && !opts.allowMustChange) {
+    return {
+      error: jsonError(
+        "Avval PIN’ni o‘zgartiring (change-pin)",
+        403,
+      ),
+    };
+  }
+
   return {
     session: {
       token: row.token,
       pair_code: row.pair_code,
       role,
       expires_at: expires,
+      must_change_pin: mustChange,
     },
   };
 }
 
 export function validatePin(pin: string): string | null {
   const p = pin.trim();
-  if (p.length < 4 || p.length > 32) return "PIN kamida 4, ko‘pi bilan 32 belgi";
+  if (!/^\d{6,12}$/.test(p)) {
+    return "PIN faqat 6–12 raqam bo‘lishi kerak";
+  }
   return null;
+}
+
+/** Timing-safe compare of create-key header to env secret. */
+export function checkPairCreateKey(req: Request): boolean {
+  const expected = process.env.PAIR_CREATE_KEY?.trim() ?? "";
+  if (!expected) return false;
+  const provided =
+    req.headers.get("x-pair-create-key")?.trim() ||
+    (() => {
+      const auth = req.headers.get("authorization") ?? "";
+      const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
+      return m?.[1]?.trim() ?? "";
+    })();
+  if (!provided) return false;
+  try {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
