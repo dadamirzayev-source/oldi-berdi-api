@@ -25,7 +25,10 @@ Endpoints:
 
 - `GET /api/health` — ok / generic error only
 - `POST /api/pair` — **create** requires `PAIR_CREATE_KEY` (no plaintext PINs in response); **join** with `{ pair_code }` (rate-limited)
-- `POST /api/entries` · confirm|reject · `GET /api/sync` (Bearer; pair-scoped; blocked while must_change)
+- `POST /api/entries` · confirm|reject|cancel · `GET /api/sync` (Bearer; pair-scoped; blocked while must_change)
+  - **confirm** / **reject** — other role only (not the creator)
+  - **cancel** — creator only; marks own `PENDING` as `REJECTED` so the other party’s sync drops it from pending
+  - Sync returns `{ pending, confirmed, rejected, cursor }`; clients must apply `rejected` (or full replace) so cancelled/rejected rows do not stay pending locally
 
 ## Secrets
 
