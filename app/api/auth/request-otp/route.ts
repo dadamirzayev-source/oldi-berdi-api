@@ -1,7 +1,7 @@
 import { generateOtpCode, storeOtp } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
-import { sendOtpEmail } from "@/lib/mail";
+import { allowDevOtpLeak, sendOtpEmail } from "@/lib/mail";
 import { emailMatchesRole, normalizeEmail, ROLE_EMAILS } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
  * POST /api/auth/request-otp
  * Body: { pair_code, email }
  * Role inferred from email. Wrong email → 403.
+ * Real inbox when RESEND_API_KEY is set. `dev_otp` only in NODE_ENV=development without key.
  */
 export async function POST(req: Request) {
   try {
@@ -37,21 +38,35 @@ export async function POST(req: Request) {
       code,
     });
 
-    const payload: Record<string, unknown> = {
+    if (!mail.sent) {
+      if (allowDevOtpLeak()) {
+        return Response.json({
+          ok: true,
+          pair_code: pairCode,
+          role,
+          email,
+          sent: false,
+          provider: mail.provider,
+          dev_otp: code,
+          hint: "Local dev — RESEND_API_KEY yo‘q. Kod faqat development’da qaytariladi.",
+        });
+      }
+      return jsonError(
+        mail.error === "RESEND_API_KEY unset"
+          ? "Email yuborish sozlanmagan (RESEND_API_KEY)"
+          : "Email yuborilmadi — keyinroq urinib ko‘ring",
+        503,
+      );
+    }
+
+    return Response.json({
       ok: true,
       pair_code: pairCode,
       role,
       email,
-      sent: mail.sent,
+      sent: true,
       provider: mail.provider,
-    };
-    // Interim tunnel without RESEND_API_KEY: expose code for on-device testing only.
-    if (!mail.sent) {
-      payload.dev_otp = code;
-      payload.hint =
-        "RESEND_API_KEY yo‘q — kod vaqtincha javobda (dev). Production’da email yuboriladi.";
-    }
-    return Response.json(payload);
+    });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "request-otp failed", 500);
   }

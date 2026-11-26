@@ -1,21 +1,43 @@
 /**
- * Send OTP email via Resend when RESEND_API_KEY is set.
- * Without a key (interim tunnel): returns the code so the client can show a
- * temporary on-screen hint — production must set RESEND_API_KEY.
+ * Send OTP email via Resend when RESEND_API_KEY is set
+ * (process env or Next-loaded `.env` / `.env.local` — never commit the key).
+ * Optional RESEND_FROM_EMAIL; defaults to Resend onboarding sender.
  */
+
+function resendApiKey(): string {
+  return process.env.RESEND_API_KEY?.trim() ?? "";
+}
+
+function resendFrom(): string {
+  return (
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    "Oldi-berdi <onboarding@resend.dev>"
+  );
+}
+
+/** On-screen / API `dev_otp` only in local Next dev without a key. */
+export function allowDevOtpLeak(): boolean {
+  return process.env.NODE_ENV === "development" && resendApiKey() === "";
+}
+
 export async function sendOtpEmail(args: {
   to: string;
   roleLabel: string;
   code: string;
 }): Promise<{ sent: boolean; provider: string; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
-  const from =
-    process.env.RESEND_FROM_EMAIL?.trim() || "Oldi-berdi <onboarding@resend.dev>";
+  const apiKey = resendApiKey();
+  const from = resendFrom();
 
   if (!apiKey) {
-    console.warn(
-      `[oldi-berdi] RESEND_API_KEY unset — OTP for ${args.to}: ${args.code}`,
-    );
+    if (allowDevOtpLeak()) {
+      console.warn(
+        `[oldi-berdi] RESEND_API_KEY unset — OTP for ${args.to}: ${args.code}`,
+      );
+    } else {
+      console.error(
+        "[oldi-berdi] RESEND_API_KEY unset — cannot send OTP (production)",
+      );
+    }
     return { sent: false, provider: "dev-console", error: "RESEND_API_KEY unset" };
   }
 
