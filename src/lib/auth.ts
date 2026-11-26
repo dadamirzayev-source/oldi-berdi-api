@@ -61,9 +61,9 @@ export async function isPinSet(pairCode: string, role: "A" | "B"): Promise<boole
   return rows.length > 0;
 }
 
-/** Cryptographically random 6-digit PIN (may include leading zeros). */
+/** Cryptographically random 8-digit PIN (may include leading zeros). */
 export function randomPin(): string {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+  return String(randomInt(0, 100_000_000)).padStart(8, "0");
 }
 
 /** Reject trivial / repeated / straight sequences — no fixed credentials in source. */
@@ -87,7 +87,7 @@ export function isWeakPin(pin: string): boolean {
 
 /**
  * Seed both roles with random provisional PINs when missing.
- * Returns plaintext PINs only for roles just seeded (show once to create-key holder).
+ * Plaintext PINs are never returned (hashed only).
  */
 export async function seedRandomPins(pairCode: string): Promise<{
   pin_set_a: boolean;
@@ -95,10 +95,8 @@ export async function seedRandomPins(pairCode: string): Promise<{
   must_change_a: boolean;
   must_change_b: boolean;
   seeded: ("A" | "B")[];
-  provisional_pins: Partial<Record<"A" | "B", string>>;
 }> {
   const seeded: ("A" | "B")[] = [];
-  const provisional_pins: Partial<Record<"A" | "B", string>> = {};
   const now = Date.now();
   for (const role of ["A", "B"] as const) {
     if (await isPinSet(pairCode, role)) continue;
@@ -112,7 +110,6 @@ export async function seedRandomPins(pairCode: string): Promise<{
       [pairCode, role, salt, pinHash, now],
     );
     seeded.push(role);
-    provisional_pins[role] = pin;
   }
   const flags = await sql<{ role: string; must_change: boolean }>(
     "select role, must_change from role_pins where pair_code = $1",
@@ -127,7 +124,6 @@ export async function seedRandomPins(pairCode: string): Promise<{
     must_change_a: Boolean(byRole.A),
     must_change_b: Boolean(byRole.B),
     seeded,
-    provisional_pins,
   };
 }
 
@@ -242,6 +238,7 @@ export async function requireSession(
   };
 }
 
+/** Login accepts existing 6–12 digit PINs. */
 export function validatePinFormat(pin: string): string | null {
   const p = pin.trim();
   if (!/^\d{6,12}$/.test(p)) {
@@ -250,11 +247,13 @@ export function validatePinFormat(pin: string): string | null {
   return null;
 }
 
-/** Format + reject weak patterns (for new PINs only). */
+/** New PINs must be 8–12 digits and non-weak. */
 export function validatePin(pin: string): string | null {
-  const formatErr = validatePinFormat(pin);
-  if (formatErr) return formatErr;
-  if (isWeakPin(pin.trim())) {
+  const p = pin.trim();
+  if (!/^\d{8,12}$/.test(p)) {
+    return "Yangi PIN faqat 8–12 raqam bo‘lishi kerak";
+  }
+  if (isWeakPin(p)) {
     return "Bu PIN juda oddiy — boshqasini tanlang";
   }
   return null;

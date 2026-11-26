@@ -12,8 +12,9 @@ PIN-only — no email / Resend.
 - Pair **create** always requires `PAIR_CREATE_KEY` and seeds random provisional
   PINs server-side (plaintext PINs are never returned in the HTTP body).
 - No fixed bootstrap pair is shipped in migrations — provision via create-key only.
-- PINs are 6–12 digits. Login rate limits are DB-backed (shared across instances).
-- Pair lookup errors do not enumerate.
+- New PINs are 8–12 digits; login still accepts existing 6–12 digit PINs.
+- Login rate limits are DB-backed (shared) and ignore spoofable `X-Forwarded-For`.
+- Pair lookup errors do not enumerate. No bootstrap UI / no fixed pair codes in source.
 
 Endpoints:
 

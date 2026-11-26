@@ -1,21 +1,14 @@
 import { sql } from "@/lib/db";
 
 /**
- * Cluster-wide rate limits stored in Postgres/PGlite (shared across instances).
- * Client identity prefers platform-set headers over spoofable X-Forwarded-For.
+ * Cluster-wide rate limits in Postgres/PGlite.
+ * Do not trust X-Forwarded-For (client-spoofable). Prefer platform IP headers only.
  */
 
 export function clientKey(req: Request, extra = ""): string {
   const realIp =
-    req.headers.get("x-real-ip")?.trim() ||
     req.headers.get("cf-connecting-ip")?.trim() ||
-    // Rightmost XFF hop is typically appended by the trusted proxy.
-    req.headers
-      .get("x-forwarded-for")
-      ?.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .pop() ||
+    req.headers.get("x-real-ip")?.trim() ||
     "unknown";
   return extra ? `${realIp}:${extra}` : realIp;
 }
