@@ -1,17 +1,12 @@
 /**
  * Local smoke for creator cancel + other-party reject sync.
  *
- * Flow:
- * 1. Create pair (PAIR_CREATE_KEY)
- * 2. Stop relying on provisional plaintext — overwrite pins via PGlite
- *    while the Next server is briefly stopped (in-memory PGlite otherwise
- *    would not see external writes).
- * 3. Restart is caller's job when using --set-pins-only; full smoke
- *    assumes pins already set OR uses SMOKE_PIN_A / SMOKE_PIN_B.
+ * Requires env (no credential defaults — publish security review):
+ *   PAIR_CREATE_KEY, SMOKE_PIN_A, SMOKE_PIN_B
+ * Optional: SMOKE_BASE (default http://127.0.0.1:3456)
  *
- * Preferred full run: `node scripts/smoke-cancel.mjs` with server up and
- * env SMOKE_BOOTSTRAP=1 which creates pair, prints pair_code, writes
- * `.data/smoke-pair.json`, and exits so the wrapper can bounce the server.
+ * Usage: --bootstrap | --set-pins | --run
+ * (--set-pins needs the Next/PGlite process stopped so the on-disk DB can be updated)
  */
 import { scryptSync, randomBytes } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
@@ -22,10 +17,15 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 const BASE = process.env.SMOKE_BASE || "http://127.0.0.1:3456";
-const CREATE_KEY = process.env.PAIR_CREATE_KEY || "test-create-key";
-const PIN_A = process.env.SMOKE_PIN_A || "482917";
-const PIN_B = process.env.SMOKE_PIN_B || "739184";
 const STATE = join(root, ".data", "smoke-pair.json");
+
+function requireEnv(name) {
+  const v = process.env[name]?.trim() ?? "";
+  if (!v) {
+    throw new Error(`${name} env is required (no defaults in this script)`);
+  }
+  return v;
+}
 
 function hashPin(pin, saltHex) {
   const salt = Buffer.from(saltHex, "hex");
@@ -46,26 +46,23 @@ async function json(method, path, { body, token, headers } = {}) {
   return { status: res.status, data };
 }
 
-export async function setPinsOffline(pairCode) {
+export async function setPinsOffline(pairCode, pinA, pinB) {
   const dataDir = join(root, ".data", "pglite");
   await mkdir(dataDir, { recursive: true });
   const db = new PGlite(dataDir);
   await db.waitReady;
   const now = Date.now();
   for (const [role, pin] of [
-    ["A", PIN_A],
-    ["B", PIN_B],
+    ["A", pinA],
+    ["B", pinB],
   ]) {
     const salt = randomBytes(16).toString("hex");
     const pinHash = hashPin(pin, salt);
-    const r = await db.query(
+    await db.query(
       `update role_pins set salt = $1, pin_hash = $2, updated_at = $3, must_change = false
        where pair_code = $4 and role = $5`,
       [salt, pinHash, now, pairCode, role],
     );
-    if ((r.affectedRows ?? r.rowCount ?? 0) === 0 && !r.rows) {
-      // PGlite may not expose affectedRows — verify
-    }
     const check = await db.query(
       "select role from role_pins where pair_code = $1 and role = $2",
       [pairCode, role],
@@ -78,34 +75,38 @@ export async function setPinsOffline(pairCode) {
 }
 
 async function bootstrap() {
+  const createKey = requireEnv("PAIR_CREATE_KEY");
   const created = await json("POST", "/api/pair", {
     body: {},
-    headers: { "x-pair-create-key": CREATE_KEY },
+    headers: { "x-pair-create-key": createKey },
   });
   if (!created.data.ok) throw new Error("pair create failed: " + JSON.stringify(created));
   const pair = created.data.pair_code;
   await mkdir(join(root, ".data"), { recursive: true });
-  await writeFile(STATE, JSON.stringify({ pair_code: pair, pin_a: PIN_A, pin_b: PIN_B }, null, 2));
+  await writeFile(STATE, JSON.stringify({ pair_code: pair }, null, 2));
   console.log("BOOTSTRAP_PAIR", pair);
-  console.log("Stop the Next server, run: node scripts/smoke-cancel.mjs --set-pins");
-  console.log("Then restart the server and run: node scripts/smoke-cancel.mjs --run");
+  console.log("Stop Next, run --set-pins with SMOKE_PIN_A/B, restart, then --run");
 }
 
 async function setPinsCmd() {
+  const pinA = requireEnv("SMOKE_PIN_A");
+  const pinB = requireEnv("SMOKE_PIN_B");
   const state = JSON.parse(await readFile(STATE, "utf8"));
-  await setPinsOffline(state.pair_code);
+  await setPinsOffline(state.pair_code, pinA, pinB);
   console.log("PINS_SET", state.pair_code);
 }
 
 async function run() {
+  const pinA = requireEnv("SMOKE_PIN_A");
+  const pinB = requireEnv("SMOKE_PIN_B");
   const state = JSON.parse(await readFile(STATE, "utf8"));
   const pair = state.pair_code;
 
   const loginA = await json("POST", "/api/auth/login", {
-    body: { pair_code: pair, pin: PIN_A },
+    body: { pair_code: pair, pin: pinA },
   });
   const loginB = await json("POST", "/api/auth/login", {
-    body: { pair_code: pair, pin: PIN_B },
+    body: { pair_code: pair, pin: pinB },
   });
   if (!loginA.data.ok || !loginB.data.ok) {
     throw new Error("login failed: " + JSON.stringify({ loginA, loginB }));
@@ -135,7 +136,6 @@ async function run() {
   const pendingBefore = (syncB1.data.pending || []).filter((e) => e.id === id);
   console.log("B pending before cancel", pendingBefore.length);
 
-  // Without cancel, local-only cancel leaves B pending — demonstrate reject-self forbidden
   const rejectSelf = await json("POST", `/api/entries/${id}/reject`, { token: tokenA });
   console.log("reject-as-creator", rejectSelf.status, rejectSelf.data.error || rejectSelf.data.ok);
 
@@ -193,6 +193,7 @@ const fn =
         : null;
 if (!fn) {
   console.log("Usage: --bootstrap | --set-pins | --run");
+  console.log("Required env: PAIR_CREATE_KEY (bootstrap), SMOKE_PIN_A, SMOKE_PIN_B (set-pins/run)");
   process.exit(1);
 }
 fn().catch((e) => {
