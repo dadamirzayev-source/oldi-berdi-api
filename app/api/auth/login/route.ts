@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     if (pinErr) return jsonError(pinErr);
 
     const limitKey = clientKey(req, `login:${pairCode || "none"}`);
-    const retry = takeToken(limitKey, 8, 15 * 60_000);
+    const retry = await takeToken(limitKey, 8, 15 * 60_000);
     if (retry != null) {
       return jsonError("Juda ko‘p urinish — biroz kuting", 429);
     }
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       return jsonError("PIN ikki rolga mos keldi — har xil PIN qo‘ying", 409);
     }
 
-    clearBucket(limitKey);
+    await clearBucket(limitKey);
 
     const role = matches[0].role as "A" | "B";
     const session = await createSession(pairCode, role);

@@ -11,13 +11,14 @@ PIN-only — no email / Resend.
 
 - Pair **create** always requires `PAIR_CREATE_KEY` and seeds random provisional
   PINs server-side (plaintext PINs are never returned in the HTTP body).
-- Production may seed one initial pair via migration (hashed only; `must_change`).
-- PINs are 6–12 digits. Login is rate-limited; pair lookup errors do not enumerate.
+- No fixed bootstrap pair is shipped in migrations — provision via create-key only.
+- PINs are 6–12 digits. Login rate limits are DB-backed (shared across instances).
+- Pair lookup errors do not enumerate.
 
 Endpoints:
 
 - `GET /api/auth/status?pair_code=` → pin / must_change flags (no seeding)
-- `POST /api/auth/set-pin` `{ pair_code, role, pin }` — first time only if unset
+- `POST /api/auth/set-pin` `{ pair_code, role, pin }` — first time only; requires `PAIR_CREATE_KEY`
 - `POST /api/auth/login` `{ pair_code, pin }` — role from PIN hash match
 - `POST /api/auth/change-pin` Bearer `{ old_pin, new_pin }` — clears must_change; drops other sessions
 

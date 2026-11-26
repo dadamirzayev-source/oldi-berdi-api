@@ -33,6 +33,19 @@ export async function POST(req: Request) {
       return jsonError("entry majburiy");
     }
 
+    const MAX_ENTRIES_PER_PAIR = 5_000;
+    const countRows = await sql<{ n: number | string }>(
+      "select count(*) as n from entries where pair_code = $1",
+      [session.pair_code],
+    );
+    const existing = await sql<{ id: string }>(
+      "select id from entries where pair_code = $1 and id = $2",
+      [session.pair_code, entry.id],
+    );
+    if (existing.length === 0 && Number(countRows[0]?.n ?? 0) >= MAX_ENTRIES_PER_PAIR) {
+      return jsonError("Juftlik uchun yozuvlar limiti to‘ldi", 429);
+    }
+
     const now = Date.now();
     const createdBy = session.role;
     const createdAt = entry.createdAt ?? now;

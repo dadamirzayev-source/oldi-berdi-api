@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const retryJoin = takeToken(clientKey(req, "pair-join"), 30, 60_000);
+    const retryJoin = await takeToken(clientKey(req, "pair-join"), 30, 60_000);
     if (retryJoin != null) {
       return jsonError("Juda ko‘p urinish — biroz kuting", 429);
     }
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const retryCreate = takeToken(clientKey(req, "pair-create"), 5, 60 * 60_000);
+    const retryCreate = await takeToken(clientKey(req, "pair-create"), 5, 60 * 60_000);
     if (retryCreate != null) {
       return jsonError("Juda ko‘p juftlik yaratish — keyinroq urinib ko‘ring", 429);
     }

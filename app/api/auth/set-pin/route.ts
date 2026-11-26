@@ -1,5 +1,6 @@
 import {
   PAIR_LOOKUP_DENIED,
+  checkPairCreateKey,
   createSession,
   hashPin,
   isPinSet,
@@ -18,10 +19,15 @@ export const dynamic = "force-dynamic";
  * POST /api/auth/set-pin
  * Body: { pair_code, role, pin }
  * First-run only for that role.
+ * Requires PAIR_CREATE_KEY (header or Bearer) — no anonymous first-claim.
  */
 export async function POST(req: Request) {
   try {
-    const retry = takeToken(clientKey(req, "set-pin"), 10, 15 * 60_000);
+    if (!checkPairCreateKey(req)) {
+      return jsonError("PIN o‘rnatish uchun avtorizatsiya kerak (PAIR_CREATE_KEY)", 401);
+    }
+
+    const retry = await takeToken(clientKey(req, "set-pin"), 10, 15 * 60_000);
     if (retry != null) {
       return jsonError("Juda ko‘p urinish — biroz kuting", 429);
     }
