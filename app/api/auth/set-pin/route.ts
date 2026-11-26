@@ -4,6 +4,7 @@ import {
   isPinSet,
   newSalt,
   normalizeRole,
+  pinUsedByOtherRole,
   validatePin,
 } from "@/lib/auth";
 import { sql } from "@/lib/db";
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/auth/set-pin
  * Body: { pair_code, role, pin }
- * First-run only (when that role has no PIN yet).
+ * First-time only for that role (no email OTP). Later use change-pin (Bearer).
+ * PINs must differ between A and B so login can infer role from PIN.
  */
 export async function POST(req: Request) {
   try {
@@ -26,7 +28,8 @@ export async function POST(req: Request) {
     const pairCode = (body.pair_code ?? "").trim().toUpperCase();
     const role = normalizeRole(body.role);
     const pin = (body.pin ?? "").trim();
-    if (!pairCode || !role) return jsonError("pair_code va role majburiy");
+    if (!pairCode) return jsonError("pair_code majburiy");
+    if (!role) return jsonError("role majburiy (A yoki B) — birinchi o‘rnatishda");
     const pinErr = validatePin(pin);
     if (pinErr) return jsonError(pinErr);
 
@@ -34,7 +37,11 @@ export async function POST(req: Request) {
     if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
 
     if (await isPinSet(pairCode, role)) {
-      return jsonError("PIN allaqachon bor — login qiling", 409);
+      return jsonError("PIN allaqachon bor — login yoki change-pin", 409);
+    }
+
+    if (await pinUsedByOtherRole(pairCode, pin, role)) {
+      return jsonError("Bu PIN boshqa rol uchun band — boshqa PIN tanlang", 409);
     }
 
     const salt = newSalt();

@@ -2,6 +2,7 @@ import { sql } from "@/lib/db";
 import {
   hashPin,
   newSalt,
+  pinUsedByOtherRole,
   requireSession,
   validatePin,
   verifyPin,
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
  * POST /api/auth/change-pin
  * Faqat o‘z rolining PIN’ini o‘zgartirish (Bearer session).
  * Body: { old_pin, new_pin }
+ * New PIN must not match the other role (login infers role from PIN).
  */
 export async function POST(req: Request) {
   try {
@@ -36,6 +38,10 @@ export async function POST(req: Request) {
     if (rows.length === 0) return jsonError("PIN topilmadi", 404);
     if (!verifyPin(oldPin, rows[0].salt, rows[0].pin_hash)) {
       return jsonError("Eski PIN noto‘g‘ri", 401);
+    }
+
+    if (await pinUsedByOtherRole(session.pair_code, newPin, session.role)) {
+      return jsonError("Bu PIN boshqa rol uchun band — boshqa PIN tanlang", 409);
     }
 
     const salt = newSalt();

@@ -51,6 +51,55 @@ export async function isPinSet(pairCode: string, role: "A" | "B"): Promise<boole
   return rows.length > 0;
 }
 
+/** Which roles already have a PIN for this pair. */
+export async function pinStatus(pairCode: string): Promise<{ A: boolean; B: boolean }> {
+  const rows = await sql<{ role: string }>(
+    "select role from role_pins where pair_code = $1",
+    [pairCode],
+  );
+  const set = new Set(rows.map((r) => r.role.toUpperCase()));
+  return { A: set.has("A"), B: set.has("B") };
+}
+
+/**
+ * Resolve role by matching PIN against all role_pins for the pair.
+ * Returns null if no match; { ambiguous: true } if both roles share the PIN.
+ */
+export async function findRoleByPin(
+  pairCode: string,
+  pin: string,
+): Promise<{ role: "A" | "B" } | { ambiguous: true } | null> {
+  const rows = await sql<{ role: string; salt: string; pin_hash: string }>(
+    "select role, salt, pin_hash from role_pins where pair_code = $1",
+    [pairCode],
+  );
+  const matches: ("A" | "B")[] = [];
+  for (const row of rows) {
+    const role = normalizeRole(row.role);
+    if (!role) continue;
+    if (verifyPin(pin, row.salt, row.pin_hash)) matches.push(role);
+  }
+  if (matches.length === 0) return null;
+  if (matches.length > 1) return { ambiguous: true };
+  return { role: matches[0] };
+}
+
+/** True if another role in this pair already uses this PIN. */
+export async function pinUsedByOtherRole(
+  pairCode: string,
+  pin: string,
+  exceptRole: "A" | "B",
+): Promise<boolean> {
+  const rows = await sql<{ role: string; salt: string; pin_hash: string }>(
+    "select role, salt, pin_hash from role_pins where pair_code = $1 and role <> $2",
+    [pairCode, exceptRole],
+  );
+  for (const row of rows) {
+    if (verifyPin(pin, row.salt, row.pin_hash)) return true;
+  }
+  return false;
+}
+
 export async function createSession(pairCode: string, role: "A" | "B"): Promise<Session> {
   const token = newSessionToken();
   const now = Date.now();
