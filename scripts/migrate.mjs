@@ -32,11 +32,13 @@ function pinOk(pin) {
 }
 
 /**
- * Operator-only seed: when OPERATOR_PIN_A + OPERATOR_PIN_B are set as Cursor
- * secrets on publish, reset the baked (or OPERATOR_PAIR_CODE) pair hashes.
- * Plaintext never lands in git — only env at build time.
+ * Operator-only seed: requires OPERATOR_PIN_RESET=1 plus OPERATOR_PIN_A/B.
+ * Without the reset flag, leftover PIN secrets must not overwrite live hashes.
  */
 async function applyOperatorPins(client) {
+  if (process.env.OPERATOR_PIN_RESET?.trim() !== "1") {
+    return;
+  }
   const pinA = process.env.OPERATOR_PIN_A?.trim() ?? "";
   const pinB = process.env.OPERATOR_PIN_B?.trim() ?? "";
   if (!pinA && !pinB) {
@@ -84,6 +86,14 @@ async function applyOperatorPins(client) {
   console.log(`migrate: operator pins applied for pair ${pairCode}`);
 }
 
+/** Drop login throttles so a lockout cannot outlive a publish. */
+async function clearLoginRateLimits(client) {
+  const res = await client.query(
+    "delete from rate_limits where bucket_key like '%login%' returning bucket_key",
+  );
+  console.log(`migrate: cleared ${res.rowCount ?? 0} login rate-limit bucket(s)`);
+}
+
 const client = new pg.Client({
   connectionString: process.env.DATABASE_URL_UNPOOLED?.trim() || url,
 });
@@ -110,6 +120,7 @@ try {
     }
   }
   await applyOperatorPins(client);
+  await clearLoginRateLimits(client);
 } finally {
   await client.end();
 }
