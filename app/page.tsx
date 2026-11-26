@@ -8,8 +8,9 @@ export default function Home() {
         <li>POST /api/pair</li>
         <li>GET /api/auth/status · POST /api/auth/set-pin · login · change-pin</li>
         <li>POST /api/entries (Bearer)</li>
-        <li>POST /api/entries/:id/confirm|reject (Bearer)</li>
+        <li>POST /api/entries/:id/confirm|reject|cancel (Bearer)</li>
         <li>GET /api/sync (Bearer)</li>
+        <li>POST /api/bootstrap (only when BOOTSTRAP_UI=1)</li>
       </ul>
     </main>
   );
