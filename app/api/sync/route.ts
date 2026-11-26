@@ -44,6 +44,7 @@ export async function GET(req: Request) {
       cursor,
     });
   } catch (e) {
-    return jsonError(e instanceof Error ? e.message : "sync failed", 500);
+    console.error("sync failed", e);
+    return jsonError("sync failed", 500);
   }
 }

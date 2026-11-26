@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    const retry = takeToken(clientKey(req, "auth-status"), 60, 60_000);
+    const retry = await takeToken(clientKey(req, "auth-status"), 60, 60_000);
     if (retry != null) {
       return jsonError("Juda ko‘p urinish — biroz kuting", 429);
     }
