@@ -1,3 +1,4 @@
+import { ensureDefaultPins } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { genPairCode, jsonError } from "@/lib/entries";
 
@@ -16,14 +17,30 @@ export async function POST(req: Request) {
       if (existing.length === 0) {
         return jsonError("Juftlik topilmadi", 404);
       }
-      return Response.json({ ok: true, pair_code: existing[0].pair_code, joined: true });
+      const pins = await ensureDefaultPins(existing[0].pair_code);
+      return Response.json({
+        ok: true,
+        pair_code: existing[0].pair_code,
+        joined: true,
+        pin_set_a: pins.pin_set_a,
+        pin_set_b: pins.pin_set_b,
+        seeded: pins.seeded,
+      });
     }
 
     for (let i = 0; i < 8; i++) {
       const code = genPairCode();
       try {
         await sql("insert into pairs (pair_code) values ($1)", [code]);
-        return Response.json({ ok: true, pair_code: code, created: true });
+        const pins = await ensureDefaultPins(code);
+        return Response.json({
+          ok: true,
+          pair_code: code,
+          created: true,
+          pin_set_a: pins.pin_set_a,
+          pin_set_b: pins.pin_set_b,
+          seeded: pins.seeded,
+        });
       } catch {
         // collision — retry
       }

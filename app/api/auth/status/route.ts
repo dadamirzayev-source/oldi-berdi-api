@@ -1,4 +1,4 @@
-import { isPinSet } from "@/lib/auth";
+import { ensureDefaultPins } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { jsonError } from "@/lib/entries";
 
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/auth/status?pair_code=
- * Reports which roles have a PIN (no client role picker for login).
+ * Backfills default PINs (A=123456, B=654321) when missing.
  */
 export async function GET(req: Request) {
   try {
@@ -17,15 +17,15 @@ export async function GET(req: Request) {
     const pair = await sql("select 1 from pairs where pair_code = $1", [pairCode]);
     if (pair.length === 0) return jsonError("Juftlik topilmadi", 404);
 
-    const pinA = await isPinSet(pairCode, "A");
-    const pinB = await isPinSet(pairCode, "B");
+    const pins = await ensureDefaultPins(pairCode);
     return Response.json({
       ok: true,
       pair_code: pairCode,
-      pin_set_a: pinA,
-      pin_set_b: pinB,
-      any_pin_set: pinA || pinB,
-      both_pin_set: pinA && pinB,
+      pin_set_a: pins.pin_set_a,
+      pin_set_b: pins.pin_set_b,
+      any_pin_set: true,
+      both_pin_set: true,
+      seeded: pins.seeded,
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "status failed", 500);

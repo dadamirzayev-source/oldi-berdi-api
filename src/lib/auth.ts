@@ -51,6 +51,42 @@ export async function isPinSet(pairCode: string, role: "A" | "B"): Promise<boole
   return rows.length > 0;
 }
 
+/** Built-in first login PINs (users should change via change-pin). */
+export const DEFAULT_ROLE_PINS: Record<"A" | "B", string> = {
+  A: "123456", // Olimjon
+  B: "654321", // Azizbek
+};
+
+/**
+ * Ensure both roles have a PIN. Inserts defaults only when missing —
+ * never overwrites an existing PIN.
+ */
+export async function ensureDefaultPins(pairCode: string): Promise<{
+  pin_set_a: boolean;
+  pin_set_b: boolean;
+  seeded: ("A" | "B")[];
+}> {
+  const seeded: ("A" | "B")[] = [];
+  const now = Date.now();
+  for (const role of ["A", "B"] as const) {
+    if (await isPinSet(pairCode, role)) continue;
+    const pin = DEFAULT_ROLE_PINS[role];
+    const salt = newSalt();
+    const pinHash = hashPin(pin, salt);
+    await sql(
+      `insert into role_pins (pair_code, role, salt, pin_hash, updated_at)
+       values ($1, $2, $3, $4, $5)`,
+      [pairCode, role, salt, pinHash, now],
+    );
+    seeded.push(role);
+  }
+  return {
+    pin_set_a: true,
+    pin_set_b: true,
+    seeded,
+  };
+}
+
 export async function createSession(pairCode: string, role: "A" | "B"): Promise<Session> {
   const token = newSessionToken();
   const now = Date.now();
